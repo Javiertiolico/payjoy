@@ -1,6 +1,8 @@
 package com.appl.java.controller;
 
 import java.math.BigDecimal;
+
+import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -48,13 +50,13 @@ public class PayjoyController {
 	private ICashService cashService;
 	@Autowired
 	private IAjusteService ajusteService;
-	
+
 	final Logger logger = Logger.getLogger(getClass());
 	/**
 	 * Prepara la url para consultar transacciones en api
 	 * @return String mensaje de ejecucion de proceso
 	 */
-	@GetMapping (value= {"/TRANSACCIONES", "/TRANSACCIONES/"})
+	@GetMapping (value= {"/transacciones", "/transacciones/"})
 	public String getConsultaPay() {
 		String salida="";
 		try {
@@ -69,6 +71,7 @@ public class PayjoyController {
 					_desde = _config.getParamHasta();
 				}
 				_url = _config.getEndpoint();
+				_desde = "1637799272";
 				//_url = "https://partner.payjoy.com/v1/list-transactions.php?key={{LLAVE}}&starttime={{DESDE}}&endtime={{HASTA}}";
 				_url = _url.replaceFirst("\\{\\{LLAVE\\}\\}", _config.getApikey());
 				_url = _url.replaceFirst("\\{\\{DESDE\\}\\}", _desde);
@@ -85,17 +88,6 @@ public class PayjoyController {
 		}
 		return "Consulta API de PayJoy "+salida;
 	}
-
-	@GetMapping("/testjb")
-	public String getTestService(){
-		try{
-			return "Prueba ejecutada" ;
-		}catch (Exception e){
-			return "Error" ;
-		}
-	}
-
-
 
 	/**
 	 * Prepara la url con rango de fechas
@@ -158,11 +150,11 @@ public class PayjoyController {
 		try {
 			logger.info("incio de consulta transacciones");
 			CloseableHttpClient httpClient = HttpClients.custom().setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE).build();
-		    HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory();
-		    requestFactory.setHttpClient(httpClient);
-		    ResponseEntity<String> response = new RestTemplate(requestFactory).exchange(url , HttpMethod.GET, null, String.class);
+			HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory();
+			requestFactory.setHttpClient(httpClient);
+			ResponseEntity<String> response = new RestTemplate(requestFactory).exchange(url , HttpMethod.GET, null, String.class);
 			ObjectMapper mapper = new ObjectMapper();
-			ResultadoPayJoy _pj = mapper.readValue(response.getBody(), ResultadoPayJoy.class); 
+			ResultadoPayJoy _pj = mapper.readValue(response.getBody(), ResultadoPayJoy.class);
 			if(_pj != null) {
 				boolean _estado = mapeaObjetos(_pj);
 				if(_estado && opt) {
@@ -173,7 +165,7 @@ public class PayjoyController {
 		}catch(Exception e) {
 			logger.warn("Error al consultar api. "+url+". "+e.toString());
 		}
-		
+
 		return "Consulta api externa";
 	}
 	/**
@@ -181,7 +173,7 @@ public class PayjoyController {
 	 */
 	private void postProceso() {
 		try {
-			Util _util = new Util();		
+			Util _util = new Util();
 			StPayMetadata _obj = new StPayMetadata();
 			_obj.setCodMetadata(1);
 			_obj.setParamHasta(_util.truncateStr(_util.getPastDate("dia", 1), 10)); //unix time 10 digitos
@@ -192,20 +184,22 @@ public class PayjoyController {
 	}
 	/**
 	 * Mapea la respuesta de PayJoy con el esquema de las tablas
-	 * @param input respuesta de payjoy 
+	 * @param input respuesta de payjoy
 	 */
 	private boolean mapeaObjetos(ResultadoPayJoy input) {
 		try {
 			if(!input.isValid()) {
-				logger.info("No hay transacciones desde PayJoy para procesar"); 
+				logger.info("No hay transacciones desde PayJoy para procesar");
 				return false;
 			}
 			List<Transaction> _transacciones = input.getTransactions();
+			_transacciones.sort(Comparator.comparing(Transaction::getType));
 			logger.info("cuantas trx "+ _transacciones.size());
 			Util util = new Util(); // conversiones
 			int len20 = 20, len100=100, len30=30;
+			/*Separe las finance de cash y commision ya que por orden es lo primero que debe ingresar*/
 			for(Transaction trx : _transacciones) {
-				if(trx.getType().equalsIgnoreCase("finance")) {
+				if (trx.getType().equalsIgnoreCase("finance")) {
 					StPayFinancePK pk = new StPayFinancePK();
 					pk.setFinanceorderId(util.truncateStr(trx.getFinanceOrder().getId(), len20));
 					pk.setCodMetadata(1); // default para payjoy
@@ -236,15 +230,18 @@ public class PayjoyController {
 					finance.setFecha(util.timeFromLong(trx.getTime()));
 					finance.setAnulado("N"); // default en registro nuevo
 					//guarda
-					StPayFinance _found= service.findOne(pk);
-					if(_found==null) {
-						logger.info("finance es nueva. "+pk);
+					StPayFinance _found = service.findOne(pk);
+					if (_found == null) {
+						logger.info("finance es nueva. " + pk);
 						service.save(finance);
-					}else {
-						logger.info("finance ya existe en db. "+pk);
+					} else {
+						logger.info("finance ya existe en db. " + pk);
 					}
 					System.out.println("estructura finanzas procesada");
-				}else if(trx.getType().equalsIgnoreCase("cash")) {
+				}
+			}
+			for(Transaction trx : _transacciones) {
+				if(trx.getType().equalsIgnoreCase("cash")) {
 					StPayCashPK pk = new StPayCashPK();
 					pk.setFinanceorderId(util.truncateStr(trx.getFinanceOrder().getId(), len20));
 					pk.setPaymentId(util.truncateStr(trx.getPayment().getId(), len20));
@@ -264,6 +261,7 @@ public class PayjoyController {
 					cash.setAnulado("N"); // default en registro nuevo
 					StPayCash _found = cashService.findOne(pk);
 					if(_found==null) {
+						//StPayFinance _test = service.findOne(_found.);
 						logger.info("cash es nueva. "+pk);
 						cashService.save(cash);
 					}else {
@@ -298,13 +296,13 @@ public class PayjoyController {
 					if(_found!=null) {
 						logger.info("cash ya existe en db");
 						if(_found.getComission().compareTo(com.getComission())!=0) {
-							logger.info("comision va a actualizarse en cash. "+pk);
-							cashService.update(com);	
+							logger.info("Comisión va a actualizarse en cash. "+pk);
+							cashService.update(com);
 						}else {
-							logger.info("comision ya estuvo actualizada. cash+comision ya existe. "+pk);						
+							logger.info("comisión ya estuvo actualizada. cash+comision ya existe. "+pk);
 						}
 					}else {
-						logger.info("no cash. cash+comision es nueva. "+pk);
+						logger.info("no cash. cash+comisión es nueva. "+pk);
 						cashService.save(com);
 					}
 					System.out.println("estructura comission procesada");
@@ -357,9 +355,9 @@ public class PayjoyController {
 					_financeOrderId = _valor.length()>0 ? _valor : "0";
 				}
 				if(!_financeOrderId.equalsIgnoreCase("0") && adjustment.getAdjustmentType().equalsIgnoreCase("finance") ) {
-					StPayFinancePK pk = new StPayFinancePK(_financeOrderId,1L); // 1 default para payjoy					
+					StPayFinancePK pk = new StPayFinancePK(_financeOrderId,1L); // 1 default para payjoy
 					StPayFinance _found= service.findOne(pk);
-					if(_found!=null) { 
+					if(_found!=null) {
 						if(_found.getAnulado().equalsIgnoreCase("N") && _found.getFinanceamount().compareTo(adjustment.getAmount().abs())==0) { // revisa costo financiamiento
 							_found.setAnulado("S"); //finance anulado
 							service.updateAnulado(_found);

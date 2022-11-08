@@ -67,11 +67,13 @@ public class Util {
 	 */
 	public String truncateStr(String value, int max) {
 		try {
+			if(value==null)
+				return "";
 			String actual = value.trim();
-			if(actual.length()>=max) {
+			if(actual.length()>=max)
 				return actual.substring(0,max);
-			}
 			return value;
+
 		}catch(Exception e) {
 			System.out.println("Error al truncar string. "+e.toString());
 		}
