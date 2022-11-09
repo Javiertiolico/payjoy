@@ -71,7 +71,6 @@ public class PayjoyController {
 					_desde = _config.getParamHasta();
 				}
 				_url = _config.getEndpoint();
-				_desde = "1637799272";
 				//_url = "https://partner.payjoy.com/v1/list-transactions.php?key={{LLAVE}}&starttime={{DESDE}}&endtime={{HASTA}}";
 				_url = _url.replaceFirst("\\{\\{LLAVE\\}\\}", _config.getApikey());
 				_url = _url.replaceFirst("\\{\\{DESDE\\}\\}", _desde);
@@ -198,6 +197,7 @@ public class PayjoyController {
 			Util util = new Util(); // conversiones
 			int len20 = 20, len100=100, len30=30;
 			/*Separe las finance de cash y commision ya que por orden es lo primero que debe ingresar*/
+
 			for(Transaction trx : _transacciones) {
 				if (trx.getType().equalsIgnoreCase("finance")) {
 					StPayFinancePK pk = new StPayFinancePK();
@@ -238,10 +238,7 @@ public class PayjoyController {
 						logger.info("finance ya existe en db. " + pk);
 					}
 					System.out.println("estructura finanzas procesada");
-				}
-			}
-			for(Transaction trx : _transacciones) {
-				if(trx.getType().equalsIgnoreCase("cash")) {
+				}else if(trx.getType().equalsIgnoreCase("cash")) {
 					StPayCashPK pk = new StPayCashPK();
 					pk.setFinanceorderId(util.truncateStr(trx.getFinanceOrder().getId(), len20));
 					pk.setPaymentId(util.truncateStr(trx.getPayment().getId(), len20));
